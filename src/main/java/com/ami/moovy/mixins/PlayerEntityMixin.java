@@ -18,8 +18,6 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
-import org.quiltmc.qsl.networking.api.PacketByteBufs;
-import org.quiltmc.qsl.networking.api.client.ClientPlayNetworking;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -56,17 +54,17 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	private boolean moovy_wasWallrunning = false;
 	private boolean moovy_wasSliding = false;
 	private boolean moovy_wasVaulting = false;
+	private boolean moovy_canVault = false;
 
 	private Vec3d moovy_wallrunVel;
 	private Vec3d moovy_wallRunNormal;
-	private Vec3d moovy_wallRunPoint;
 
 	private boolean moovy_wasJumping = false;
 	private boolean moovy_wasSneaking = false;
 	private boolean moovy_wasSprinting = false;
 
 
-	private int moovy_boostAnimTimer = 0;
+	private int moovy_boostVisualTimer = 0;
 	private int moovy_boostCharges = 3;
 	private int moovy_prevBoostCharges = 3;
 
@@ -78,7 +76,6 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	private float moovy_vaultTargetY;
 	private Vec3d moovy_prevVel;
 	private boolean moovy_prevHorizontalCollision;
-	private boolean moovy_wasVaultSprinting;
 
 
 	private int moovy_wallrunStickTimer = 0;
@@ -100,7 +97,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		setSprinting(moovy_wasSprinting);
 
 		//Slide-jump
-		if (moovy_sliding) {
+		if (moovy_sliding && !moovy_wasJumping) {
 			var vel = getVelocity();
 			var flat = new Vec3d(vel.x, 0, vel.z);
 
@@ -119,7 +116,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	@Inject(method = "updatePose", at = @At("HEAD"), cancellable = true)
 	public void updatePose(CallbackInfo ci) {
 		if (moovy_sliding) {
-			//setPose(EntityPose.SWIMMING);
+			setPose(EntityPose.SWIMMING);
 			ci.cancel();
 		}
 	}
@@ -129,34 +126,20 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 		//If touching liquids, or fall-flying, use vanilla
 		FluidState fluidState = this.world.getFluidState(this.getBlockPos());
-		if ((isUsingItem()) || (this.getAbilities().flying) || (this.isTouchingWater() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isInLava() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isFallFlying())) {
+		if ((isUsingItem()) || (this.getAbilities().flying) || (this.isTouchingWater() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isInLava() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isFallFlying()))
 			return;
-		}
 
-		if(!world.isClient)
+		if (isClimbing())
 			return;
 
 		if (!EnchantmentHelper.hasSoulSpeed(this)) return;
 
-		if (moovy_isVaulting) {
-			moovy_vault();
-		} else if (moovy_wallrunning) {
-			moovy_wallrunning(movementInput);
-
-			//Spawn particles on wall
-			world.addParticle(ParticleTypes.SOUL_FIRE_FLAME,
-					moovy_wallRunPoint.x, moovy_wallRunPoint.y, moovy_wallRunPoint.z,
-					moovy_wallRunNormal.x * 0.05f, 0.1f, moovy_wallRunNormal.z * 0.05f
-			);
+		if (!world.isClient) {
+			if (moovy_boostTimer > 0)
+				moovy_boostTimer--;
 		} else {
-			moovy_newMovement(movementInput);
-		}
 
-		int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
-		Vec3d pos = getPos();
-
-		{
-
+			int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
 			//Recharge boost
 			if (moovy_boostCharges < maxCharges && moovy_boostCooldown < 50) {
 				moovy_boostCooldown++;
@@ -166,6 +149,59 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 					moovy_boostCharges++;
 				}
 			}
+
+			if (moovy_isVaulting) {
+				moovy_vault();
+			} else if (moovy_wallrunning) {
+				moovy_wallrunning(movementInput);
+			} else {
+				moovy_newMovement(movementInput);
+			}
+
+
+			//Update packets
+			{
+				if (moovy_prevBoostCharges != moovy_boostCharges) {
+					MoovyMod.updater.setCharge((PlayerEntity) (Object) this, moovy_boostCharges);
+				}
+
+				if (moovy_wasSliding != moovy_sliding) {
+					MoovyMod.updater.setSliding((PlayerEntity) (Object) this, moovy_sliding);
+				}
+
+				if (moovy_wasWallrunning != moovy_wallrunning) {
+					MoovyMod.updater.setWallrunning((PlayerEntity) (Object) this, moovy_wallrunning, moovy_wallRunNormal);
+				}
+
+				if (moovy_wasVaulting != moovy_isVaulting) {
+					MoovyMod.updater.setVaulting((PlayerEntity) (Object) this, moovy_isVaulting);
+				}
+			}
+
+
+			//Do this because we cancelled the movement code
+			updateLimbs(this, this instanceof Flutterer);
+
+			//Store for next frame
+			moovy_wasJumping = jumping;
+			moovy_wasSneaking = isSneaking();
+
+			//If we collided this frame, ignore, unless we collided last frame too.
+			if (!horizontalCollision || moovy_prevHorizontalCollision)
+				moovy_prevVel = getVelocity();
+
+			moovy_prevHorizontalCollision = horizontalCollision;
+
+			ci.cancel();
+		}
+	}
+
+	@Inject(method = "tick", at = @At("HEAD"))
+	public void tick(CallbackInfo ci) {
+		Vec3d pos = getPos();
+
+		{
+			int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
 
 			//Spawn boost recharge particles
 
@@ -186,8 +222,8 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			}
 
 			//Spawn soul flames when boosting
-			if (moovy_boostAnimTimer > 0) {
-				moovy_boostAnimTimer--;
+			if (moovy_boostVisualTimer > 0) {
+				moovy_boostVisualTimer--;
 
 				Vec3d right = pos.add(Math.sin(Math.toRadians(getYaw()) + Math.PI / 2.0f) * 0.2f, 0, -Math.cos(Math.toRadians(getYaw()) + Math.PI / 2.0f) * 0.2f);
 				Vec3d left = pos.subtract(Math.sin(Math.toRadians(getYaw()) + Math.PI / 2.0f) * 0.2f, 0, -Math.cos(Math.toRadians(getYaw()) + Math.PI / 2.0f) * 0.2f);
@@ -195,70 +231,41 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 				world.addParticle(ParticleTypes.SOUL_FIRE_FLAME, right.x, right.y + 0.1f, right.z, 0, 0.1, 0);
 				world.addParticle(ParticleTypes.SOUL_FIRE_FLAME, left.x, left.y + 0.1f, left.z, 0, 0.1, 0);
 			}
-		}
 
-		//Putter for out of charges
-		if (moovy_prevBoostCharges > 0 && moovy_boostCharges == 0) {
-			for (int i = 0; i < 16; i++) {
-				world.addParticle(ParticleTypes.SMOKE,
-						pos.x + (random.nextDouble() - 0.5f) * 0.5f, pos.y, pos.z + (random.nextDouble() - 0.5f) * 0.5f,
-						(random.nextDouble() - 0.5f) * 0.1f, 0.05f, (random.nextDouble() - 0.5f) * 0.1f
-				);
+			//Putter for out of charges
+			if (moovy_prevBoostCharges > 0 && moovy_boostCharges == 0) {
+				for (int i = 0; i < 16; i++) {
+					world.addParticle(ParticleTypes.SMOKE,
+							pos.x + (random.nextDouble() - 0.5f) * 0.5f, pos.y, pos.z + (random.nextDouble() - 0.5f) * 0.5f,
+							(random.nextDouble() - 0.5f) * 0.1f, 0.05f, (random.nextDouble() - 0.5f) * 0.1f
+					);
+				}
+			} else if (moovy_prevBoostCharges != moovy_boostCharges && moovy_boostCharges == maxCharges) {
+				for (int i = 0; i < 16; i++) {
+					world.addParticle(ParticleTypes.SOUL_FIRE_FLAME,
+							pos.x + (random.nextDouble() - 0.5f) * 0.5f, pos.y, pos.z + (random.nextDouble() - 0.5f) * 0.5f,
+							(random.nextDouble() - 0.5f) * 0.1f, 0.05f, (random.nextDouble() - 0.5f) * 0.1f
+					);
+				}
 			}
-		} else if (moovy_prevBoostCharges != moovy_boostCharges && moovy_boostCharges == maxCharges) {
-			for (int i = 0; i < 16; i++) {
+
+			if (moovy_wallrunning && moovy_wallRunNormal != null) {
+				//Spawn particles on wall
 				world.addParticle(ParticleTypes.SOUL_FIRE_FLAME,
-						pos.x + (random.nextDouble() - 0.5f) * 0.5f, pos.y, pos.z + (random.nextDouble() - 0.5f) * 0.5f,
-						(random.nextDouble() - 0.5f) * 0.1f, 0.05f, (random.nextDouble() - 0.5f) * 0.1f
+						(getPos().x + (random.nextDouble() - 0.5f) * 0.1f) - (moovy_wallRunNormal.x * 0.15),
+						getPos().y + 0.1f,
+						(getPos().z + (random.nextDouble() - 0.5f) * 0.1f) - (moovy_wallRunNormal.z * 0.15),
+
+						(random.nextDouble() - 0.5f) * 0.06f, 0.05f, (random.nextDouble() - 0.5f) * 0.06f
 				);
 			}
 		}
 
-
-		//Update packets
-		{
-			if (moovy_prevBoostCharges != moovy_boostCharges) {
-				MoovyMod.updater.setCharge((PlayerEntity) (Object) this, moovy_boostCharges);
-				moovy_prevBoostCharges = moovy_boostCharges;
-			}
-
-			if (moovy_wasSliding != moovy_sliding) {
-				MoovyMod.updater.setSliding((PlayerEntity) (Object) this, moovy_sliding);
-
-				moovy_wasSliding = moovy_sliding;
-			}
-
-			if (moovy_wasWallrunning != moovy_wallrunning) {
-				MoovyMod.updater.setWallrunning((PlayerEntity) (Object) this, moovy_wallrunning);
-
-				moovy_wasWallrunning = moovy_wallrunning;
-			}
-
-			if (moovy_wasVaulting != moovy_isVaulting) {
-				MoovyMod.updater.setVaulting((PlayerEntity) (Object) this, moovy_isVaulting);
-				moovy_emitVaultParticles();
-
-				moovy_wasVaulting = moovy_isVaulting;
-			}
-		}
-
-
-		//Do this because we cancelled the movement code
-		updateLimbs(this, this instanceof Flutterer);
-
-		//Store for next frame
-		moovy_wasJumping = jumping;
-		moovy_wasSneaking = isSneaking();
-
-		//If we collided this frame, ignore, unless we collided last frame too.
-		if (!horizontalCollision || moovy_prevHorizontalCollision)
-			moovy_prevVel = getVelocity();
-
-		moovy_prevHorizontalCollision = horizontalCollision;
-
-		ci.cancel();
+		moovy_prevBoostCharges = moovy_boostCharges;
+		moovy_wasSliding = moovy_sliding;
+		moovy_wasWallrunning = moovy_wallrunning;
+		moovy_wasVaulting = moovy_isVaulting;
 	}
-
 
 	public void moovy_newMovement(Vec3d movementInput) {
 
@@ -276,14 +283,10 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		//If player starts sneaking in air, set to boost state
 		if (!moovy_wasSneaking && isSneaking() && !onGround && moovy_boostTimer == 0 && moovy_boostCharges > 0) {
 
-			//Get velocity's addition to boost
-			double velocityBias = (-getVelocity().y) - 0.5f;
-			velocityBias = MathHelper.clamp(velocityBias, 0, 5);
-
-			moovy_boostForce = 1 + velocityBias;
-
 			//Lower vertical velocity = higher boost
 			moovy_boostTimer = 50;
+
+			MoovyMod.updater.setBoostTimer((PlayerEntity) (Object) this, 50);
 		}
 
 		//Grab common values
@@ -299,38 +302,55 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 		float speedThreshold = (speed * speed) + (speed * speed);
 
-		moovy_sliding = false;
-
 		//If on the ground...
 		if (onGround) {
+			moovy_canVault = true;
+
 			BlockPos blockPos = this.getVelocityAffectingPos();
 			float slipperiness = (this.world.getBlockState(blockPos).getBlock().getSlipperiness() * 0.9f) + 0.05f;
 
-			if (isSneaking() && flat.lengthSquared() > speedThreshold * 0.1f) {
+			moovy_sliding = false;
+			moovy_wallrunStickTimer = 12;
+
+
+			if (isSneaking() && flat.lengthSquared() > speedThreshold * 0.3f) {
 				// -- Sliding --
 
 				//Boost
 				if (moovy_boostTimer > 0) {
 					moovy_boostTimer = 0;
 					moovy_boostCharges--;
-					moovy_boostAnimTimer += 4;
+					moovy_boostVisualTimer += 4;
 
-					velocity = velocity.add(normedInput.x * 0.24 * moovy_boostForce, 0, normedInput.z * 0.24 * moovy_boostForce);
+					//Get velocity's addition to boost
+					double velocityBias = (-moovy_prevVel.y) - 0.5f;
+					velocityBias = MathHelper.clamp(velocityBias, 0, 5);
+
+					moovy_boostForce = 1 + (velocityBias * 2.0f);
+
+					velocity = velocity.add(normedInput.x * 0.31 * moovy_boostForce, 0, normedInput.z * 0.31 * moovy_boostForce);
 					flat = new Vec3d(velocity.x, 0, velocity.z);
 				}
 
 				var normd = flat.normalize();
-				var len = flat.length() * 0.96f; //Drag
+				var len = flat.length() * 0.98f; //Drag
 
 				//Calculate the angle we want to travel at, and the angle we are actually travelling at.
-				double desiredAngle = Math.toDegrees(Math.atan2(correctedInput.x, correctedInput.z));
 				double actualAngle = Math.toDegrees(Math.atan2(normd.x, normd.z));
+				double desiredAngle = Math.toDegrees(Math.atan2(correctedInput.x, correctedInput.z));
+				if (correctedInput.lengthSquared() < 0.001f)
+					desiredAngle = actualAngle;
 
 				//Move from current angle towards desired angle, decreasing control as the velocity increases.
 				double newAngle = MathHelper.lerpAngleDegrees((float) MathHelper.lerp(MathHelper.clamp((2 + len) / 12, 0, 1), 0.15f, 0.05f), (float) actualAngle, (float) desiredAngle);
 
 				//Set velocity.
 				velocity = new Vec3d(Math.sin(Math.toRadians(newAngle)) * len, velocity.y, Math.cos(Math.toRadians(newAngle)) * len);
+				velocity = new Vec3d(
+						velocity.x * MathHelper.clamp(0.85 + (slipperiness * slipperiness * slipperiness), 0, 1),
+						velocity.y,
+						velocity.z * MathHelper.clamp(0.85 + (slipperiness * slipperiness * slipperiness), 0, 1)
+				);
 
 				moovy_sliding = true;
 			} else {
@@ -346,31 +366,33 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 				//Start wallrunning
 				moovy_wallrunning = true;
-				moovy_wallrunStickTimer = 20;
 				//Reset vertical velocity, helps with control.
 				velocity = new Vec3d(velocity.x, MathHelper.clamp(velocity.y, -0.05f, 0.2f), velocity.z);
 				moovy_wallrunVel = velocity;
 			}
 
 			//Check for vault
-			if (isSneaking()) {
+			if (isSneaking() && moovy_canVault) {
 				Vec3d lookDir = new Vec3d(-Math.sin(Math.toRadians(getYaw())), 0, Math.cos(Math.toRadians(getYaw())));
 
 				Vec3d eyePos = getEyePos();
-				Vec3d kneePos = getPos().add(0, 0.4f, 0);
+				Vec3d kneePos = getPos();
 
 				Vec3d eyeEnd = eyePos.add(lookDir.multiply(1));
-				Vec3d kneeEnd = eyePos.add(lookDir.multiply(1));
+				Vec3d kneeEnd = kneePos.add(lookDir.multiply(1));
 
-				var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
-				var hitB = this.world.raycast(new RaycastContext(kneePos, kneeEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
+				var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
+				var hitB = this.world.raycast(new RaycastContext(kneePos, kneeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
 
 				//If eyes missed, but knees hit, we're up against a ledge.
-				if (hitA.getType() == HitResult.Type.MISS && horizontalCollision) {
+				if (hitA.getType() == HitResult.Type.MISS && hitB.getType() == HitResult.Type.BLOCK) {
 					moovy_isVaulting = true;
 					moovy_vaultSpeed = moovy_prevVel;
 					moovy_vaultNormal = new Vec3d(hitB.getSide().getUnitVector()).negate();
-					moovy_wasVaultSprinting = moovy_wasSprinting;
+					moovy_vaultTargetY = (float) Math.floor(getEyeY());
+					moovy_canVault = false;
+
+					moovy_emitVaultParticles();
 				}
 			}
 
@@ -419,28 +441,26 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		}
 		Vec3d vel = getVelocity();
 
-		Vec3d lookDir = new Vec3d(Math.sin(Math.toRadians(getYaw())), 0, Math.cos(Math.toRadians(getYaw())));
-
 		Vec3d eyePos = getEyePos();
-		Vec3d kneePos = getPos().add(0, 0.4f, 0);
+		Vec3d kneePos = getPos();
 
-		Vec3d eyeEnd = eyePos.add(lookDir.multiply(1));
-		Vec3d kneeEnd = eyePos.add(lookDir.multiply(1));
+		Vec3d eyeEnd = eyePos.add(moovy_vaultNormal.multiply(1));
+		Vec3d kneeEnd = kneePos.add(moovy_vaultNormal.multiply(1));
 
-		var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
-		var hitB = this.world.raycast(new RaycastContext(kneePos, kneeEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
+		var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
+		var hitB = this.world.raycast(new RaycastContext(kneePos, kneeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
 
-		//If eyes missed, but knees hit, we're up against a ledge.
-		if (hitA.getType() == HitResult.Type.MISS && horizontalCollision) {
+		//If eyes missed, but knees hit, we're up against a ledge still.
+		if (hitA.getType() == HitResult.Type.MISS && hitB.getType() == HitResult.Type.BLOCK) {
 
 			// "lift" player up onto block by moving them up, and into the block.
 			vel = vel.add(moovy_vaultNormal.x * 0.01f, 0, moovy_vaultNormal.z * 0.01f);
-			vel = new Vec3d(vel.x, (moovy_vaultTargetY - getPos().y) * 0.008f, vel.z);
+			vel = new Vec3d(vel.x, 0.4f, vel.z);
 
 			setVelocity(vel);
 			this.move(MovementType.SELF, vel);
 
-			if (Math.abs(moovy_vaultTargetY - getPos().y) < 0.01f) {
+			if (Math.abs(moovy_vaultTargetY - getPos().y) < 0.0001f) {
 				moovy_isVaulting = false;
 				setVelocity(new Vec3d(moovy_vaultSpeed.x, vel.y, moovy_vaultSpeed.z));
 
@@ -468,6 +488,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 			//Kick off of wall (normal), add vertical velocity, and add look direction
 			setVelocity(getVelocity().add(moovy_wallRunNormal.multiply(0.2f)).add(0, 0.37f, 0).add(lookDir.multiply(0.3f)));
+
+			MoovyMod.updater.spawnWalljumpParticles((PlayerEntity) (Object) this);
+			moovy_spawnWallrunningParticles();
 
 			//Move, then cancel wall running.
 			this.move(MovementType.SELF, getVelocity());
@@ -499,18 +522,18 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			moovy_wallrunVel = moovy_wallrunVel.add(0, -0.03f, 0).add(0, -moovy_wallrunVel.y * 0.01f, 0);
 		else moovy_wallrunVel = new Vec3d(moovy_wallrunVel.x, 0, moovy_wallrunVel.z);
 
+		velocity = velocity.add(moovy_wallRunNormal.multiply(0.1).negate());
+
 		//Set velocity for other apis and stuff.
 		setVelocity(velocity);
 
 		//When we move, also move us towards the wall a little, so we hug it.
-		this.move(MovementType.SELF, velocity.add(moovy_wallRunNormal.multiply(0.1).negate()));
+		this.move(MovementType.SELF, velocity);
 	}
 
 	public boolean moovy_couldWallrun(Vec3d flat) {
-		if (flat.length() > 0.3f || moovy_wallrunning) {
-
+		if (flat.length() > 0.23f || moovy_wallrunning) {
 			Vec3d closestVec = null;
-
 
 			//Find closest of the 4 cardinal directions
 			{
@@ -544,8 +567,8 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			Vec3d eyeEnd = eyePos.add(flatNorm);
 			Vec3d feetEnd = feetPos.add(flatNorm);
 
-			var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
-			var hitB = this.world.raycast(new RaycastContext(feetPos, feetEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, this));
+			var hitA = this.world.raycast(new RaycastContext(eyePos, eyeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
+			var hitB = this.world.raycast(new RaycastContext(feetPos, feetEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
 
 			if (hitA.getType() == HitResult.Type.MISS || hitB.getType() == HitResult.Type.MISS) {
 				//System.out.println(hitA.getType() + "|" + hitB.getType());
@@ -563,7 +586,6 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 			if (aDot >= 0 && aDot < 0.9f && bDot >= 0 && bDot < 0.9f) {
 				moovy_wallRunNormal = hitANormal;
-				moovy_wallRunPoint = hitB.getPos();
 				return true;
 			} else {
 				//System.out.println("Angle not right! " + aDot);
@@ -587,8 +609,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	}
 
 	@Override
-	public void moovy_setWallrunning(boolean state) {
+	public void moovy_setWallrunning(boolean state, Vec3d normal) {
 		moovy_wallrunning = state;
+		moovy_wallRunNormal = normal;
 	}
 
 	@Override
@@ -598,15 +621,36 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 	@Override
 	public void moovy_setCharge(int charge) {
-		charge = charge;
+
+		if (moovy_boostCharges > charge) moovy_boostVisualTimer = 4;
+
+		moovy_boostCharges = charge;
 	}
 
 	@Override
 	public void moovy_setVaulting(boolean state) {
-
 		if (!moovy_isVaulting && state) moovy_emitVaultParticles();
 
 		moovy_isVaulting = state;
+	}
+
+	@Override
+	public void moovy_setBoostTimer(int count) {
+		moovy_boostTimer = count;
+	}
+
+	@Override
+	public void moovy_setBoostVisualTimer(int value) {
+		if (!world.isClient)
+			return;
+		moovy_boostVisualTimer = value;
+	}
+
+	@Override
+	public void moovy_spawnWallrunningParticles() {
+		if (!world.isClient)
+			return;
+		moovy_emitVaultParticles();
 	}
 
 	private void moovy_emitVaultParticles() {
