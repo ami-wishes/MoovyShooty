@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 @Mixin(ServerPlayNetworkHandler.class)
 public class ServerPlayNetworkHandlerMixin {
 
-	@ModifyVariable(at = @At("STORE"), method = "onPlayerMove", name = "bl3")
+	@ModifyVariable(at = @At("STORE"), method = "onPlayerMove", ordinal = 2)
 	private boolean modifyCheatDetector(boolean var){
 		return false;
 	}

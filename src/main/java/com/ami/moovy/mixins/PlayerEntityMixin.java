@@ -134,71 +134,69 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 		if (!EnchantmentHelper.hasSoulSpeed(this)) return;
 
-		if (!world.isClient) {
-			if (moovy_boostTimer > 0)
-				moovy_boostTimer--;
-		} else {
 
-			int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
-			//Recharge boost
-			if (moovy_boostCharges < maxCharges && moovy_boostCooldown < 50) {
-				moovy_boostCooldown++;
+		int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
+		//Recharge boost
+		if (moovy_boostCharges < maxCharges && moovy_boostCooldown < 50) {
+			moovy_boostCooldown++;
 
-				if (moovy_boostCooldown == 50) {
-					moovy_boostCooldown = 0;
-					moovy_boostCharges++;
-				}
+			if (moovy_boostCooldown == 50) {
+				moovy_boostCooldown = 0;
+				moovy_boostCharges++;
 			}
-
-			if (moovy_isVaulting) {
-				moovy_vault();
-			} else if (moovy_wallrunning) {
-				moovy_wallrunning(movementInput);
-			} else {
-				moovy_newMovement(movementInput);
-			}
-
-
-			//Update packets
-			{
-				if (moovy_prevBoostCharges != moovy_boostCharges) {
-					MoovyMod.updater.setCharge((PlayerEntity) (Object) this, moovy_boostCharges);
-				}
-
-				if (moovy_wasSliding != moovy_sliding) {
-					MoovyMod.updater.setSliding((PlayerEntity) (Object) this, moovy_sliding);
-				}
-
-				if (moovy_wasWallrunning != moovy_wallrunning) {
-					MoovyMod.updater.setWallrunning((PlayerEntity) (Object) this, moovy_wallrunning, moovy_wallRunNormal);
-				}
-
-				if (moovy_wasVaulting != moovy_isVaulting) {
-					MoovyMod.updater.setVaulting((PlayerEntity) (Object) this, moovy_isVaulting);
-				}
-			}
-
-
-			//Do this because we cancelled the movement code
-			updateLimbs(this, this instanceof Flutterer);
-
-			//Store for next frame
-			moovy_wasJumping = jumping;
-			moovy_wasSneaking = isSneaking();
-
-			//If we collided this frame, ignore, unless we collided last frame too.
-			if (!horizontalCollision || moovy_prevHorizontalCollision)
-				moovy_prevVel = getVelocity();
-
-			moovy_prevHorizontalCollision = horizontalCollision;
-
-			ci.cancel();
 		}
+
+		if (moovy_isVaulting) {
+			moovy_vault();
+		} else if (moovy_wallrunning) {
+			moovy_wallrunning(movementInput);
+		} else {
+			moovy_newMovement(movementInput);
+		}
+
+
+		//Update packets
+		{
+			if (moovy_prevBoostCharges != moovy_boostCharges) {
+				MoovyMod.updater.setCharge((PlayerEntity) (Object) this, moovy_boostCharges);
+			}
+
+			if (moovy_wasSliding != moovy_sliding) {
+				MoovyMod.updater.setSliding((PlayerEntity) (Object) this, moovy_sliding);
+			}
+
+			if (moovy_wasWallrunning != moovy_wallrunning) {
+				MoovyMod.updater.setWallrunning((PlayerEntity) (Object) this, moovy_wallrunning, moovy_wallRunNormal);
+			}
+
+			if (moovy_wasVaulting != moovy_isVaulting) {
+				MoovyMod.updater.setVaulting((PlayerEntity) (Object) this, moovy_isVaulting);
+			}
+		}
+
+
+		//Do this because we cancelled the movement code
+		updateLimbs(this, this instanceof Flutterer);
+
+		//Store for next frame
+		moovy_wasJumping = jumping;
+		moovy_wasSneaking = isSneaking();
+
+		//If we collided this frame, ignore, unless we collided last frame too.
+		if (!horizontalCollision || moovy_prevHorizontalCollision)
+			moovy_prevVel = getVelocity();
+
+		moovy_prevHorizontalCollision = horizontalCollision;
+
+		ci.cancel();
 	}
 
 	@Inject(method = "tick", at = @At("HEAD"))
 	public void tick(CallbackInfo ci) {
 		Vec3d pos = getPos();
+
+		if (moovy_boostTimer > 0)
+			moovy_boostTimer--;
 
 		{
 			int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
@@ -284,7 +282,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		if (!moovy_wasSneaking && isSneaking() && !onGround && moovy_boostTimer == 0 && moovy_boostCharges > 0) {
 
 			//Lower vertical velocity = higher boost
-			moovy_boostTimer = 50;
+			moovy_boostTimer = 30;
 
 			MoovyMod.updater.setBoostTimer((PlayerEntity) (Object) this, 50);
 		}
@@ -313,7 +311,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			moovy_wallrunStickTimer = 12;
 
 
-			if (isSneaking() && flat.lengthSquared() > speedThreshold * 0.3f) {
+			if (isSneaking() && flat.lengthSquared() > speedThreshold * 0.2f) {
 				// -- Sliding --
 
 				//Boost
@@ -621,7 +619,6 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 	@Override
 	public void moovy_setCharge(int charge) {
-
 		if (moovy_boostCharges > charge) moovy_boostVisualTimer = 4;
 
 		moovy_boostCharges = charge;
@@ -636,6 +633,8 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 	@Override
 	public void moovy_setBoostTimer(int count) {
+		if (world.isClient)
+			return;
 		moovy_boostTimer = count;
 	}
 
