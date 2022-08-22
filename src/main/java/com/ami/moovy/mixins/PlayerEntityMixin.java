@@ -56,8 +56,8 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	private boolean moovy_wasVaulting = false;
 	private boolean moovy_canVault = false;
 
-	private Vec3d moovy_wallrunVel;
-	private Vec3d moovy_wallRunNormal;
+	private Vec3d moovy_wallrunVel = Vec3d.ZERO;
+	private Vec3d moovy_wallRunNormal = Vec3d.ZERO;
 
 	private boolean moovy_wasJumping = false;
 	private boolean moovy_wasSneaking = false;
@@ -71,11 +71,11 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	private int moovy_boostCooldown = 0;
 
 
-	private Vec3d moovy_vaultSpeed;
-	private Vec3d moovy_vaultNormal;
-	private float moovy_vaultTargetY;
-	private Vec3d moovy_prevVel;
-	private boolean moovy_prevHorizontalCollision;
+	private Vec3d moovy_vaultSpeed = Vec3d.ZERO;
+	private Vec3d moovy_vaultNormal = Vec3d.ZERO;
+	private float moovy_vaultTargetY = 0;
+	private Vec3d moovy_prevVel = Vec3d.ZERO;
+	private boolean moovy_prevHorizontalCollision = false;
 
 
 	private int moovy_wallrunStickTimer = 0;
@@ -284,7 +284,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			//Lower vertical velocity = higher boost
 			moovy_boostTimer = 30;
 
-			MoovyMod.updater.setBoostTimer((PlayerEntity) (Object) this, 50);
+			MoovyMod.updater.setBoostTimer((PlayerEntity) (Object) this, moovy_boostTimer);
 		}
 
 		//Grab common values
