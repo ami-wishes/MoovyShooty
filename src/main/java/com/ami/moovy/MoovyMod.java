@@ -6,8 +6,12 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
 import org.quiltmc.loader.api.ModContainer;
 import org.quiltmc.qsl.base.api.entrypoint.ModInitializer;
+import org.quiltmc.qsl.lifecycle.api.event.ServerTickEvents;
 import org.quiltmc.qsl.networking.api.PacketByteBufs;
 import org.quiltmc.qsl.networking.api.ServerPlayNetworking;
+
+import java.util.LinkedList;
+import java.util.Queue;
 
 public class MoovyMod implements ModInitializer {
 	public static final Identifier setVaulting = new Identifier("moovy", "setvaulting");
@@ -18,6 +22,9 @@ public class MoovyMod implements ModInitializer {
 	public static final Identifier setBoostVisualTimer = new Identifier("moovy", "setboostvisualtimer");
 	public static final Identifier spawnWallrunningParticles = new Identifier("moovy", "spawnwallrunningparticles");
 
+
+	private static final Object _queueLock = new Object();
+	private static final Queue<Runnable> _actionQueue = new LinkedList<>();
 
 	public static IMoovyPlayerUpdater updater;
 
@@ -57,23 +64,35 @@ public class MoovyMod implements ModInitializer {
 			}
 		};
 
+		ServerTickEvents.END.register((server) -> {
+			synchronized (_queueLock) {
+				while (_actionQueue.size() > 0) {
+					_actionQueue.poll().run();
+				}
+			}
+		});
+
 		ServerPlayNetworking.registerGlobalReceiver(setVaulting, (server, player, handler, buf, responseSender) -> {
 			boolean state = buf.readBoolean();
 
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setVaulting(state);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeBoolean(state);
-					ServerPlayNetworking.send(serverPlayerEntity, setVaulting, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeBoolean(state);
+							ServerPlayNetworking.send(serverPlayerEntity, setVaulting, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -83,17 +102,21 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setSliding(state);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeBoolean(state);
-					ServerPlayNetworking.send(serverPlayerEntity, setSliding, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeBoolean(state);
+							ServerPlayNetworking.send(serverPlayerEntity, setSliding, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -104,21 +127,25 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setWallrunning(state, normal);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeBoolean(state);
-					wBuf.writeDouble(normal.x);
-					wBuf.writeDouble(normal.y);
-					wBuf.writeDouble(normal.z);
-					
-					ServerPlayNetworking.send(serverPlayerEntity, setWallrunning, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeBoolean(state);
+							wBuf.writeDouble(normal.x);
+							wBuf.writeDouble(normal.y);
+							wBuf.writeDouble(normal.z);
+
+							ServerPlayNetworking.send(serverPlayerEntity, setWallrunning, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -128,17 +155,21 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setCharge(charge);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeInt(charge);
-					ServerPlayNetworking.send(serverPlayerEntity, setCharge, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeInt(charge);
+							ServerPlayNetworking.send(serverPlayerEntity, setCharge, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -148,17 +179,21 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setBoostTimer(charge);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeInt(charge);
-					ServerPlayNetworking.send(serverPlayerEntity, setBoostTimer, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeInt(charge);
+							ServerPlayNetworking.send(serverPlayerEntity, setBoostTimer, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -168,17 +203,21 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_setBoostVisualTimer(charge);
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					wBuf.writeInt(charge);
-					ServerPlayNetworking.send(serverPlayerEntity, setBoostVisualTimer, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							wBuf.writeInt(charge);
+							ServerPlayNetworking.send(serverPlayerEntity, setBoostVisualTimer, wBuf);
+						}
+					}
+				});
 			}
 		});
 
@@ -186,16 +225,20 @@ public class MoovyMod implements ModInitializer {
 			var schmoovyPlayer = (ISchmoovinPlayer) player;
 			schmoovyPlayer.moovy_spawnWallrunningParticles();
 
-			//Send packet to all players but ourself
-			for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
-				if (serverPlayerEntity == player)
-					continue;
+			synchronized (_queueLock) {
+				_actionQueue.add(() -> {
+					//Send packet to all players but ourself
+					for (ServerPlayerEntity serverPlayerEntity : server.getPlayerManager().getPlayerList()) {
+						if (serverPlayerEntity == player)
+							continue;
 
-				if (serverPlayerEntity.canSee(player)) {
-					var wBuf = PacketByteBufs.create();
-					wBuf.writeUuid(player.getUuid());
-					ServerPlayNetworking.send(serverPlayerEntity, spawnWallrunningParticles, wBuf);
-				}
+						if (serverPlayerEntity.canSee(player)) {
+							var wBuf = PacketByteBufs.create();
+							wBuf.writeUuid(player.getUuid());
+							ServerPlayNetworking.send(serverPlayerEntity, spawnWallrunningParticles, wBuf);
+						}
+					}
+				});
 			}
 		});
 	}
