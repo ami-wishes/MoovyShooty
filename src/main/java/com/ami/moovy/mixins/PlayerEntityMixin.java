@@ -44,6 +44,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	@Shadow
 	protected abstract float getVelocityMultiplier();
 
+	@Shadow
+	protected abstract void updatePose();
+
 	private int moovy_boostTimer = 0;
 	private double moovy_boostForce = 0;
 
@@ -124,6 +127,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	@Inject(method = "travel", at = @At("HEAD"), cancellable = true)
 	public void travel(Vec3d movementInput, CallbackInfo ci) {
 
+		if(!world.isClient)
+			return;
+
 		//If touching liquids, or fall-flying, use vanilla
 		FluidState fluidState = this.world.getFluidState(this.getBlockPos());
 		if ((isUsingItem()) || (this.getAbilities().flying) || (this.isTouchingWater() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isInLava() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isFallFlying()))
@@ -197,6 +203,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 		if (moovy_boostTimer > 0)
 			moovy_boostTimer--;
+
+		if(!world.isClient)
+			return;
 
 		{
 			int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
@@ -275,9 +284,6 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 			this.onLanding();
 		}
 
-		//Boost state decay
-		if (moovy_boostTimer > 0) moovy_boostTimer--;
-
 		//If player starts sneaking in air, set to boost state
 		if (!moovy_wasSneaking && isSneaking() && !onGround && moovy_boostTimer == 0 && moovy_boostCharges > 0) {
 
@@ -326,7 +332,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 					moovy_boostForce = 1 + (velocityBias * 2.0f);
 
-					velocity = velocity.add(normedInput.x * 0.31 * moovy_boostForce, 0, normedInput.z * 0.31 * moovy_boostForce);
+					velocity = velocity.add(normedInput.x * 0.6 * moovy_boostForce, 0, normedInput.z * 0.6 * moovy_boostForce);
 					flat = new Vec3d(velocity.x, 0, velocity.z);
 				}
 
@@ -615,6 +621,7 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 	@Override
 	public void moovy_setSliding(boolean state) {
 		moovy_sliding = state;
+		updatePose();
 	}
 
 	@Override
@@ -633,8 +640,6 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 
 	@Override
 	public void moovy_setBoostTimer(int count) {
-		if (world.isClient)
-			return;
 		moovy_boostTimer = count;
 	}
 
