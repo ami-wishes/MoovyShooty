@@ -4,6 +4,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.registry.Registry;
 import org.quiltmc.loader.api.ModContainer;
 import org.quiltmc.qsl.base.api.entrypoint.ModInitializer;
 import org.quiltmc.qsl.lifecycle.api.event.ServerTickEvents;
@@ -28,9 +29,13 @@ public class MoovyMod implements ModInitializer {
 
 	public static IMoovyPlayerUpdater updater;
 
+	public static final CancelStatusEffect CANCEL_STATUS_EFFECT = new CancelStatusEffect();
+
 
 	@Override
 	public void onInitialize(ModContainer mod) {
+
+		Registry.register(Registry.STATUS_EFFECT, new Identifier("moovy", "cancel"), CANCEL_STATUS_EFFECT);
 
 		updater = new IMoovyPlayerUpdater() {
 			@Override

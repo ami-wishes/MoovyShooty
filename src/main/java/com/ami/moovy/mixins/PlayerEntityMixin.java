@@ -130,6 +130,9 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		if(!world.isClient)
 			return;
 
+		if(hasStatusEffect(MoovyMod.CANCEL_STATUS_EFFECT))
+			return;
+
 		//If touching liquids, or fall-flying, use vanilla
 		FluidState fluidState = this.world.getFluidState(this.getBlockPos());
 		if ((isUsingItem()) || (this.getAbilities().flying) || (this.isTouchingWater() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isInLava() && this.shouldSwimInFluids() && !this.canWalkOnFluid(fluidState)) || (this.isFallFlying()))
@@ -138,7 +141,12 @@ public abstract class PlayerEntityMixin extends LivingEntity implements ISchmoov
 		if (isClimbing())
 			return;
 
-		if (!EnchantmentHelper.hasSoulSpeed(this)) return;
+		//Status effects
+		if(hasStatusEffect(StatusEffects.SLOW_FALLING) || hasStatusEffect(StatusEffects.LEVITATION))
+			return;
+
+		if (!EnchantmentHelper.hasSoulSpeed(this))
+			return;
 
 
 		int maxCharges = EnchantmentHelper.getEquipmentLevel(Enchantments.SOUL_SPEED, this);
